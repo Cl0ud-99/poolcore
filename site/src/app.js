@@ -152,38 +152,59 @@ let lastFrameT = 0;
 // EXT_disjoint_timer_query_webgl2 is available we can measure the GPU directly:
 // if the GPU reports ~4 ms while frames arrive every 17 ms, the cost is elsewhere.
 const GPUTimer = (() => {
-  let gl = null, ext = null, query = null, pending = null;
+  // A single in-flight query is not enough. The GPU runs one to three frames
+  // behind the CPU, so by the time a query is readable the CPU may already have
+  // submitted another frame. Tracking only one query meant begin() silently
+  // skipped while a result was pending, and the pairing broke - which is how the
+  // HUD ended up reporting a GPU time LONGER than the whole frame interval.
+  //
+  // Keep a small queue instead, and only report the most recent completed result.
+  const MAX_IN_FLIGHT = 4;
+  let gl = null, ext = null;
+  let inFlight = [];
   let lastMs = 0, supported = false;
 
   function init(ctx) {
     gl = ctx;
     ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
     supported = !!ext;
+    inFlight = [];
     return supported;
   }
 
   function begin() {
-    if (!supported || pending) return;
-    query = gl.createQuery();
-    gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
+    if (!supported) return null;
+    // If the queue is full the GPU is far behind; drop the measurement rather
+    // than corrupting the pairing.
+    if (inFlight.length >= MAX_IN_FLIGHT) return null;
+    const q = gl.createQuery();
+    gl.beginQuery(ext.TIME_ELAPSED_EXT, q);
+    return q;
   }
 
-  function end() {
-    if (!supported || !query) return;
+  function end(q) {
+    if (!supported || !q) return;
     gl.endQuery(ext.TIME_ELAPSED_EXT);
-    pending = query;
-    query = null;
+    inFlight.push(q);
   }
 
   function poll() {
-    if (!supported || !pending) return;
+    if (!supported) return;
+    // A disjoint event means the GPU was interrupted (context switch, power
+    // state change) and every in-flight result is garbage - discard them all.
     const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
-    if (gl.getQueryParameter(pending, gl.QUERY_RESULT_AVAILABLE)) {
-      if (!disjoint) {
-        lastMs = gl.getQueryParameter(pending, gl.QUERY_RESULT) / 1e6;
-      }
-      gl.deleteQuery(pending);
-      pending = null;
+    if (disjoint) {
+      for (const q of inFlight) gl.deleteQuery(q);
+      inFlight.length = 0;
+      return;
+    }
+    while (inFlight.length) {
+      const q = inFlight[0];
+      if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) break;
+      const ns = gl.getQueryParameter(q, gl.QUERY_RESULT);
+      gl.deleteQuery(q);
+      inFlight.shift();
+      lastMs = ns / 1e6;
     }
   }
 
@@ -232,9 +253,9 @@ function loop(now) {
   lastFrameT = now;
   const t1 = performance.now();
   updateCamera(dt);
-  GPUTimer.begin();
+  const gpuQuery = GPUTimer.begin();
   renderer.render(cam);
-  GPUTimer.end();
+  GPUTimer.end(gpuQuery);
   GPUTimer.poll();
   // CPU time spent issuing commands - NOT the frame rate. Kept as a diagnostic
   // because a large gap between this and the real frame time means the GPU is
@@ -537,7 +558,7 @@ const HUD = (() => {
       // frame interval / GPU execution time / CPU submit time.
       // If the interval is much larger than the GPU time, the cost is NOT in our
       // shaders - it is the browser compositor, vsync waiting, or the canvas size.
-      const g = stats.gpuTimer ? (stats.gpuMs ?? 0).toFixed(1) : 'n/a';
+      const g = (stats.gpuTimer && stats.gpuMs > 0) ? stats.gpuMs.toFixed(1) : 'n/a';
       el.ms.textContent = stats.ms.toFixed(1) + ' / ' + g + ' / ' + (stats.cpuMs ?? 0).toFixed(1);
     }
     if (el.gpu) {
@@ -606,7 +627,11 @@ const APP = {
       // ms = real frame interval (what the eye sees)
       ms: +avg.toFixed(2),
       cpuMs: +cpuAvg.toFixed(2),
-      gpuMs: +GPUTimer.ms.toFixed(2),
+      // A GPU pass cannot take longer than the frame interval that contains it.
+      // When the raw reading violates that, report it as invalid rather than
+      // showing a physically impossible number.
+      gpuMs: (GPUTimer.ms > 0 && GPUTimer.ms <= avg * 1.15) ? +GPUTimer.ms.toFixed(2) : -1,
+      gpuRawMs: +GPUTimer.ms.toFixed(2),
       gpuTimer: GPUTimer.supported,
       gpuName: GPUInfo.name,
       gpuSoftware: GPUInfo.software,
