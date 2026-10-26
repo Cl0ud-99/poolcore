@@ -568,7 +568,12 @@ export class Renderer {
     if (this.giOn ?? 1.0) {
       this._giFrame = (this._giFrame || 0) + 1;
       if ((this._giFrame & 1) === 1) this.ssgiPass(vp, invVP, cam.pos);
-      this.giCombinePass();
+      // The combine is a pure texture mix with no state of its own, so it only
+      // needs to re-run when its SSGI input changes - which is every other frame.
+      // It still writes bounceTex that the water pass reads, so it cannot simply
+      // be dropped; skipping it on the off frames halves its cost and leaves the
+      // previous result in place, which is at most one frame stale.
+      if ((this._giFrame & 1) === 1 || this._giFrame <= 2) this.giCombinePass();
     }
     else this.copyLitToBounce();
     if (this.volOn ?? 1.0) this.volPass(vp, invVP, cam.pos);
@@ -713,19 +718,28 @@ export class Renderer {
 
     // Present the resolved frame.
     //
-    // This is a FILTERED draw, not a blit. When the internal buffer is larger
-    // than the canvas (supersampling) a NEAREST blit would throw the extra
-    // samples away; sampling with LINEAR instead box-filters them down, which is
-    // where the anti-aliasing actually comes from.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.disable(gl.DEPTH_TEST);
-    gl.disable(gl.BLEND);
-    gl.bindVertexArray(this.quad);
-    p = this.pPresent.use();
-    p.tex('uTex', this.taaTex[resIdx]);
-    p.u2f('uRes', this.canvas.width, this.canvas.height);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // When the render buffer matches the canvas exactly there is nothing to
+    // resample, so a plain blit is both correct and much cheaper than running a
+    // full-screen shader. The filtered path only matters when supersampling (or
+    // dynamic resolution) makes the buffers differ in size.
+    const sameSize = (w === this.canvas.width && h === this.canvas.height);
+    if (sameSize) {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.taaFBO[resIdx].fb);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+      gl.blitFramebuffer(0, 0, w, h, 0, 0, this.canvas.width, this.canvas.height,
+                         gl.COLOR_BUFFER_BIT, gl.NEAREST);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    } else {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      gl.disable(gl.DEPTH_TEST);
+      gl.disable(gl.BLEND);
+      gl.bindVertexArray(this.quad);
+      p = this.pPresent.use();
+      p.tex('uTex', this.taaTex[resIdx]);
+      p.u2f('uRes', this.canvas.width, this.canvas.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
 
     // Advance the ping-pong. The slot we just wrote holds this frame's resolved
     // result; next frame it must be read as uPrev, so taaIdx has to move to the

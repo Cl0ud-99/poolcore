@@ -40,6 +40,24 @@ float fbm(vec3 p, int oct) {
   return s / n;
 }
 
+// Frequency-aware fbm.
+//
+// The surface shader multiplies almost every noise term by footAA(freq, fp), which
+// fades detail out once a cycle drops below a pixel. That is correct for
+// anti-aliasing, but it was applied AFTER the fbm had already run: a distant wall
+// paid for two full octaves of noise and then multiplied the result by zero.
+//
+// This variant takes the footprint up front and returns immediately when the
+// detail is invisible. On a typical view most of the frame is distant surface, so
+// this removes the majority of the noise work in the G-buffer.
+//
+// aa is the 0..1 fade factor (pass footAA(freq, fp)); the caller still multiplies
+// the result by it, so the appearance is identical.
+float fbmAA(vec3 p, int oct, float aa) {
+  if (aa <= 0.001) return 0.5;   // neutral value, caller's *aa collapses it to 0
+  return fbm(p, oct);
+}
+
 float D_GGX(float NoH, float a) {
   float a2 = a * a;
   float d = (NoH * a2 - NoH) * NoH + 1.0;

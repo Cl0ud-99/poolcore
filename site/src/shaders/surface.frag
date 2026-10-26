@@ -136,7 +136,7 @@ void main() {
     }
 
     // ---- grout ----
-    float dirt = fbm(vPos * 6.0, 2) * footAA(6.0, fp);
+    float dirt = fbmAA(vPos * 6.0, 2, footAA(6.0, fp)) * footAA(6.0, fp);
     vec3 groutCol = mD.rgb * (0.86 + 0.26 * dirt);
     float groutRough = 0.90;
 
@@ -187,8 +187,8 @@ void main() {
 
   // ======================= plaster / concrete =======================
   } else if (pattern == 3) {
-    float st = fbm(vPos * 1.4, 3) * footAA(1.4, fp);
-    float fine = fbm(vPos * 9.0, 2) * footAA(9.0, fp);
+    float st = fbmAA(vPos * 1.4, 3, footAA(1.4, fp)) * footAA(1.4, fp);
+    float fine = fbmAA(vPos * 9.0, 2, footAA(9.0, fp)) * footAA(9.0, fp);
     albedo *= (0.93 + 0.10 * st) * (0.975 + 0.05 * fine);
     rough = clamp(mA.a + 0.10 * (st - 0.5), 0.05, 1.0);
     nxy = (vec2(fine, fbm(vPos * 9.0 + 11.0, 2)) - 0.5) * 0.30 * nStr * footAA(9.0, fp);
@@ -202,7 +202,7 @@ void main() {
 
   // ======================= porcelain / glazed trim =======================
   } else if (pattern == 5) {
-    float mott = fbm(vPos * 5.0, 2) * footAA(5.0, fp);
+    float mott = fbmAA(vPos * 5.0, 2, footAA(5.0, fp)) * footAA(5.0, fp);
     albedo *= (0.99 + 0.02 * mott);
     rough = clamp(mA.a + (mott - 0.5) * 0.03, 0.02, 1.0);
     float mo = footAA(150.0, fp) * 0.016 * nStr;
@@ -210,7 +210,7 @@ void main() {
 
   // ======================= rubber / inflatable =======================
   } else if (pattern == 6) {
-    float w = fbm(vPos * 2.6, 2) * footAA(2.6, fp);
+    float w = fbmAA(vPos * 2.6, 2, footAA(2.6, fp)) * footAA(2.6, fp);
     albedo *= (0.975 + 0.05 * w);
     rough = clamp(mA.a + 0.03 * (w - 0.5), 0.04, 1.0);
     // mould-release dimples: broad, low frequency, never a noise field
@@ -237,7 +237,7 @@ void main() {
 
   // ======================= painted =======================
   } else if (pattern == 9) {
-    float n = fbm(vPos * 4.0, 2) * footAA(4.0, fp);
+    float n = fbmAA(vPos * 4.0, 2, footAA(4.0, fp)) * footAA(4.0, fp);
     albedo *= (0.985 + 0.025 * n);
     rough = clamp(mA.a + (n - 0.5) * 0.04, 0.02, 1.0);
     float po = footAA(120.0, fp) * 0.014 * nStr;
@@ -287,7 +287,7 @@ void main() {
   // ======================= fabric =======================
   } else if (pattern == 15) {
     float weave = sin(vPos.x * 900.0) * sin(vPos.y * 900.0 + vPos.z * 300.0) * footAA(900.0, fp);
-    float fz = fbm(vPos * 34.0, 2) * footAA(34.0, fp);
+    float fz = fbmAA(vPos * 34.0, 2, footAA(34.0, fp)) * footAA(34.0, fp);
     albedo *= (0.95 + 0.06 * fz) * (0.98 + 0.03 * weave);
     rough = clamp(mA.a + (fz - 0.5) * 0.06, 0.3, 1.0);
     nxy = vec2(weave, fbm(vPos * 34.0 + 3.0, 2) - 0.5) * 0.06 * nStr;
