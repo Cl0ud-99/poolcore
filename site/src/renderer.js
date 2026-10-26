@@ -75,9 +75,9 @@ export class Renderer {
       txt('deferred.frag'), txt('ao.frag'), txt('aoBlur.frag'),
       txt('ssgi.frag'), txt('ssgiBlur.frag'), txt('giCombine.frag'), txt('volumetric.frag'),
       txt('water.frag'), txt('bloomPrefilter.frag'), txt('bloomDown.frag'),
-      txt('bloomUp.frag'), txt('composite.frag'), txt('taa.frag'), txt('present.frag'),
+      txt('bloomUp.frag'), txt('composite.frag'), txt('softglow.frag'), txt('taa.frag'), txt('present.frag'),
       txt('shadow.vert'), txt('shadow.frag'),
-    ]).then(([fsv, common, sv, sf, df, af, abf, gf, gbf, gcf, vf, wf, bpf, bdf, buf, cf, tf, pf, shv, shf]) => {
+    ]).then(([fsv, common, sv, sf, df, af, abf, gf, gbf, gcf, vf, wf, bpf, bdf, buf, cf, sgf, tf, pf, shv, shf]) => {
       const C = (s) => s.replace(/(#version 300 es\n(?:[ \t]*precision[^\n]*\n)*)/, (m) => m + common + '\n');
       this.pSurface = new Prog(gl, sv, C(sf), 'surface');
       this.pDeferred = new Prog(gl, fsv, C(df), 'deferred');
@@ -92,6 +92,7 @@ export class Renderer {
       this.pBloomDown = new Prog(gl, fsv, bdf, 'bloomDown');
       this.pBloomUp = new Prog(gl, fsv, buf, 'bloomUp');
       this.pComposite = new Prog(gl, fsv, C(cf), 'composite');
+      this.pSoftGlow = new Prog(gl, fsv, sgf, 'softglow');
       this.pTAA = new Prog(gl, fsv, C(tf), 'taa');
       this.pPresent = new Prog(gl, fsv, pf, 'present');
       this.pShadow = new Prog(gl, shv, shf, 'shadow');
@@ -154,6 +155,7 @@ export class Renderer {
       this.bloom.forEach(b => { del(b.tex); delF(b.fbo); });
       del(this.taaTex[0]); del(this.taaTex[1]); delF(this.taaFBO[0]); delF(this.taaFBO[1]);
       del(this.prevDepthTex);
+      if (this.softTex) { del(this.softTex[0]); del(this.softTex[1]); delF(this.softFBO[0]); delF(this.softFBO[1]); }
       if (this.compTex) { del(this.compTex); delF(this.compFBO); }
     }
     const F = gl.RGBA8, HF = gl.RGBA16F;
@@ -201,6 +203,19 @@ export class Renderer {
       this.bloom.push({ tex, fbo: new FBO(gl, { w: bw, h: bh, color: [tex] }), w: bw, h: bh });
       bw = Math.max(1, bw >> 1); bh = Math.max(1, bh >> 1);
     }
+
+    // White-diffusion chain: two half-res ping-pong buffers. Half resolution is
+    // plenty because the result is blurred far past the point where detail
+    // survives, and it keeps the pass nearly free.
+    this.softW = hw; this.softH = hh;
+    this.softTex = [
+      t({ w: hw, h: hh, internal: HF, format: gl.RGBA, type: gl.HALF_FLOAT, filter: gl.LINEAR }),
+      t({ w: hw, h: hh, internal: HF, format: gl.RGBA, type: gl.HALF_FLOAT, filter: gl.LINEAR }),
+    ];
+    this.softFBO = [
+      new FBO(gl, { w: hw, h: hh, color: [this.softTex[0]] }),
+      new FBO(gl, { w: hw, h: hh, color: [this.softTex[1]] }),
+    ];
 
     this.taaTex = [
       t({ w, h, internal: HF, format: gl.RGBA, type: gl.HALF_FLOAT }),
@@ -486,6 +501,31 @@ export class Renderer {
     this.buildTargets();
   }
 
+  // Build the white-diffusion layer: a very wide, very soft copy of the finished
+  // HDR frame. Five growing-radius taps approximate a diffusion filter at a
+  // fraction of a gaussian's cost.
+  softGlowPass(srcTex) {
+    const gl = this.gl;
+    gl.disable(gl.DEPTH_TEST);
+    gl.bindVertexArray(this.quad);
+    gl.disable(gl.BLEND);
+
+    let src = srcTex;
+    let dst = 0;
+    const STEPS = [1.0, 2.0, 3.5, 6.0, 10.0];
+    for (let i = 0; i < STEPS.length; i++) {
+      this.softFBO[dst].bind();
+      const p = this.pSoftGlow.use();
+      p.tex('uTex', src);
+      p.u2f('uTexel', 1 / this.softW, 1 / this.softH);
+      p.u1f('uScale', STEPS[i]);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      src = this.softTex[dst];
+      dst = 1 - dst;
+    }
+    return src;
+  }
+
   render(cam) {
     const gl = this.gl, w = this.w, h = this.h;
     this.frame++;
@@ -584,11 +624,16 @@ export class Renderer {
     }
     gl.disable(gl.BLEND);
 
+    // Build the diffusion layer from the finished HDR frame, so it contains the
+    // water and the god rays as well as the geometry.
+    const softTex = this.softGlowPass(this.waterTex);
+
     const dst = this.taaIdx;
     this.compFBO.bind();
     p = this.pComposite.use();
     p.tex('uHDR', this.waterTex).tex('uBloom', this.bloom[0].tex).tex('uDepth', this.depth)
-     .tex('uVol', this.volTex);
+     .tex('uVol', this.volTex).tex('uSoft', softTex);
+    p.u1f('uSoftAmt', this.softAmt ?? 0.22);
     p.u2f('uRes', w, h).u1f('uTime', this.time);
     p.u1f('uExposure', this.exposure);
     p.u1f('uBloomStr', this.bloomStr);

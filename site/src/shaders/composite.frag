@@ -7,6 +7,8 @@ uniform sampler2D uHDR;
 uniform sampler2D uBloom;
 uniform sampler2D uDepth;
 uniform sampler2D uVol;
+uniform sampler2D uSoft;   // wide, soft copy of the HDR frame
+uniform float uSoftAmt;    // white-diffusion strength
 uniform vec2 uRes;
 uniform float uTime;
 uniform float uExposure;
@@ -109,6 +111,31 @@ void main() {
 
   // ---- exposure + tonemap ----
   col = ACESFit(max(col, 0.0) * uExposure);
+
+  // ---- white diffusion (soft-focus veil) ----
+  // Applied in DISPLAY space, after the tone curve, so it cannot change the
+  // overall exposure or the black point - it only softens local contrast, which
+  // is exactly what a diffusion filter in front of a lens does.
+  //
+  // The blend is a screen at low strength: it lifts the midtones very slightly
+  // where the blur is bright, and leaves the darks almost untouched. A plain
+  // mix() toward the blur would have flattened the whole frame.
+  if (uSoftAmt > 0.001) {
+    vec3 soft = texture(uSoft, vUV).rgb;
+    // Screen-blend the blurred copy against itself at half weight. Because the
+    // blur is a low-pass of the same image, this adds back a halo without
+    // introducing new colour.
+    vec3 veil = 1.0 - (1.0 - col) * (1.0 - soft * 0.5);
+    // Preserve luminance: measure the change and scale it back so the frame does
+    // not get brighter overall. Only the CONTRAST changes.
+    float before = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    vec3 blended = mix(col, veil, uSoftAmt);
+    float after = dot(blended, vec3(0.2126, 0.7152, 0.0722));
+    // Rescale toward the original luminance. The 0.85 keeps a trace of the lift
+    // so the image still reads as softer rather than merely desaturated.
+    blended *= (before + 1e-4) / (after + 1e-4) * 0.85 + 0.15;
+    col = clamp(blended, 0.0, 1.0);
+  }
 
   // ---- grading, all in display space now ----
   float l = dot(col, vec3(0.2126, 0.7152, 0.0722));

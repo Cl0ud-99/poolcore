@@ -106,6 +106,9 @@ async function boot() {
   renderer.grain = num('grain', 0.010);
   renderer.waterCaustics = num('caus', 1.0);
   renderer.aperture = num('ap', 0.30);
+  // White diffusion. Kept low by default: a little reads as soft glass, a lot
+  // reads as a smeared lens.
+  renderer.softAmt = num('soft', 0.22);
   if (Q.get('sundir') !== null) {
     const sd = Q.get('sundir').split(',').map(parseFloat);
     if (sd.length === 3 && sd.every(v => isFinite(v))) renderer.sunDir = V3.norm(sd);
