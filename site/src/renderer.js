@@ -366,13 +366,31 @@ export class Renderer {
     p.u2f('uRes', w, h); p.u1f('uTime', this.time);
     p.u1f('uFog', this.fogAmount ?? 0.55);
     p.u1f('uDebug', this.debugView ?? 0.0);
+    // Upload the light arrays only when they change. They are generated once by
+    // level.js and never move, so this used to cost 96 uniform4f calls per pass,
+    // twice per frame - about 11k redundant calls per second.
     const lights = this.lights || [];
-    p.u1i('uLightCount', Math.min(lights.length, 64));
-    for (let i = 0; i < lights.length && i < 64; i++) {
-      const L = lights[i];
-      p.u4f('uLightPos[' + i + ']', L.pos[0], L.pos[1], L.pos[2], L.radius);
-      p.u4f('uLightCol[' + i + ']', L.color[0], L.color[1], L.color[2], L.intensity * this.lightScale);
+    const lightCount = Math.min(lights.length, 64);
+    p.u1i('uLightCount', lightCount);
+    const lightKey = lights.length + ':' + this.lightScale;
+    if (this._lightKey !== lightKey) {
+      this._lightKey = lightKey;
+      this._lightCache = new Float32Array(64 * 4);
+      this._lightColCache = new Float32Array(64 * 4);
+      for (let i = 0; i < lightCount; i++) {
+        const L = lights[i];
+        this._lightCache[i * 4] = L.pos[0];
+        this._lightCache[i * 4 + 1] = L.pos[1];
+        this._lightCache[i * 4 + 2] = L.pos[2];
+        this._lightCache[i * 4 + 3] = L.radius;
+        this._lightColCache[i * 4] = L.color[0];
+        this._lightColCache[i * 4 + 1] = L.color[1];
+        this._lightColCache[i * 4 + 2] = L.color[2];
+        this._lightColCache[i * 4 + 3] = L.intensity * this.lightScale;
+      }
     }
+    p.u4v('uLightPos[0]', this._lightCache);
+    p.u4v('uLightCol[0]', this._lightColCache);
     const portals = this.portals || [];
     p.u1i('uPortalCount', Math.min(portals.length, 10));
     for (let i = 0; i < portals.length && i < 10; i++) {
@@ -601,12 +619,12 @@ export class Renderer {
     p.u3f('uPoolMax', POOL.x1, 0, POOL.z1);
     p.u1f('uSSROn', this.ssrOn ?? 1.0);
     p.u1f('uCaustics', this.waterCaustics ?? 1.0);
+    // Same cached arrays as the deferred pass - no second upload of identical data.
     const wl = this.lights || [];
     p.u1i('uLightCount', Math.min(wl.length, 64));
-    for (let i = 0; i < wl.length && i < 64; i++) {
-      const L = wl[i];
-      p.u4f('uLightPos[' + i + ']', L.pos[0], L.pos[1], L.pos[2], L.radius);
-      p.u4f('uLightCol[' + i + ']', L.color[0], L.color[1], L.color[2], L.intensity * this.lightScale);
+    if (this._lightCache) {
+      p.u4v('uLightPos[0]', this._lightCache);
+      p.u4v('uLightCol[0]', this._lightColCache);
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 

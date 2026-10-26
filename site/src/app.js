@@ -60,6 +60,7 @@ async function boot() {
   renderer = new Renderer(canvas);
   await renderer.ready;
   renderer.setSize(w, h);
+  GPUTimer.init(renderer.gl);
   renderer.dynScale = 1.0;
   renderer._userScale = SCALE;
   // Supersampling factor. 1.25 is a good default; ?ss=1 disables it on weak GPUs,
@@ -141,6 +142,53 @@ let hudAcc = 0;
 const perfAcc = [];
 const cpuFrames = [];
 let lastFrameT = 0;
+
+// ============================================================
+//  GPU timer: distinguishes a slow GPU from a slow compositor
+// ============================================================
+// requestAnimationFrame spacing includes GPU work, browser compositing and the
+// vsync wait, so a 17 ms interval does not prove the GPU is the bottleneck. When
+// EXT_disjoint_timer_query_webgl2 is available we can measure the GPU directly:
+// if the GPU reports ~4 ms while frames arrive every 17 ms, the cost is elsewhere.
+const GPUTimer = (() => {
+  let gl = null, ext = null, query = null, pending = null;
+  let lastMs = 0, supported = false;
+
+  function init(ctx) {
+    gl = ctx;
+    ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    supported = !!ext;
+    return supported;
+  }
+
+  function begin() {
+    if (!supported || pending) return;
+    query = gl.createQuery();
+    gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
+  }
+
+  function end() {
+    if (!supported || !query) return;
+    gl.endQuery(ext.TIME_ELAPSED_EXT);
+    pending = query;
+    query = null;
+  }
+
+  function poll() {
+    if (!supported || !pending) return;
+    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+    if (gl.getQueryParameter(pending, gl.QUERY_RESULT_AVAILABLE)) {
+      if (!disjoint) {
+        lastMs = gl.getQueryParameter(pending, gl.QUERY_RESULT) / 1e6;
+      }
+      gl.deleteQuery(pending);
+      pending = null;
+    }
+  }
+
+  return { init, begin, end, poll, get ms() { return lastMs; }, get supported() { return supported; } };
+})();
+
 function loop(now) {
   const t = (performance.now() - t0) / 1000;
   renderer.time = t;
@@ -152,7 +200,10 @@ function loop(now) {
   lastFrameT = now;
   const t1 = performance.now();
   updateCamera(dt);
+  GPUTimer.begin();
   renderer.render(cam);
+  GPUTimer.end();
+  GPUTimer.poll();
   // CPU time spent issuing commands - NOT the frame rate. Kept as a diagnostic
   // because a large gap between this and the real frame time means the GPU is
   // the bottleneck.
@@ -451,9 +502,11 @@ const HUD = (() => {
       el.fps.className = 'v' + (fps < 30 ? ' warn' : (fps < 50 ? '' : ' ok'));
     }
     if (el.ms) {
-      // Show real frame interval plus the CPU submit time, so it is obvious
-      // whether the GPU or the CPU is the bottleneck.
-      el.ms.textContent = stats.ms.toFixed(1) + ' / ' + (stats.cpuMs ?? 0).toFixed(1);
+      // frame interval / GPU execution time / CPU submit time.
+      // If the interval is much larger than the GPU time, the cost is NOT in our
+      // shaders - it is the browser compositor, vsync waiting, or the canvas size.
+      const g = stats.gpuTimer ? (stats.gpuMs ?? 0).toFixed(1) : 'n/a';
+      el.ms.textContent = stats.ms.toFixed(1) + ' / ' + g + ' / ' + (stats.cpuMs ?? 0).toFixed(1);
     }
     if (el.scale) {
       const s = Math.round((stats.scale ?? 1) * 100);
@@ -509,6 +562,8 @@ const APP = {
       // ms = real frame interval (what the eye sees)
       ms: +avg.toFixed(2),
       cpuMs: +cpuAvg.toFixed(2),
+      gpuMs: +GPUTimer.ms.toFixed(2),
+      gpuTimer: GPUTimer.supported,
       scale: renderer ? (renderer.dynScale ?? 1) : 1,
       w: renderer ? renderer.w : 0,
       h: renderer ? renderer.h : 0,
