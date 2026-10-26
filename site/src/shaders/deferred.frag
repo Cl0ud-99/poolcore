@@ -317,8 +317,12 @@ void main() {
     float vert = clamp(1.0 - abs(N.y), 0.0, 1.0);
     // A vertical wall sees half the bright ceiling and half the bright floor,
     // so its irradiance must sit between the two lobes - not below both.
-    float skyW = 0.090 + 0.300 * up + 0.250 * vert;
-    float floorW = 0.170 + 0.900 * dn * dn + 0.330 * vert;
+    // Lower and more directional. The previous floor lobe (0.170 + 0.900*dn^2)
+    // flooded the room with bounce, so every surface sat at a similar mid-grey
+    // and nothing read as being lit BY anything. Dreamcore wants pools of light
+    // and large dim areas between them.
+    float skyW = 0.055 + 0.185 * up + 0.140 * vert;
+    float floorW = 0.085 + 0.430 * dn * dn + 0.170 * vert;
     // A recessed soffit only sees the recess, so GTAO hands it a very low value;
     // multiplying the already-weak floor lobe by it produced the black wedges
     // between the capitals and the vault. Real GI would fill those with bounce,
@@ -326,8 +330,8 @@ void main() {
     // This is also what keeps the shadow side of the red rings and the underside
     // of the slide from going to a flat near-black: a fill term that can reach 0
     // is not a fill term. AO now modulates the hemispheres by at most ~2:1.
-    float aoS = mix(ao, 1.0, 0.62);
-    float occ = clamp(aoS, 0.42, 1.0) * (1.0 - metal * 0.7);
+    float aoS = mix(ao, 1.0, 0.52);
+    float occ = clamp(aoS, 0.32, 1.0) * (1.0 - metal * 0.7);
     diffuse += alb.rgb * uSkyColor * skyW * occ;
     diffuse += alb.rgb * uGroundColor * floorW * occ;
     dbgLobe = alb.rgb * (uSkyColor * skyW + uGroundColor * floorW) * occ;

@@ -65,6 +65,17 @@
 
   .hidden{display:none !important}
 
+  #fatal{
+    position:fixed; inset:0; z-index:99;
+    display:none; padding:40px;
+    background:#0b0a08; color:#e0d8c4;
+    font:13px/1.7 ui-monospace,Menlo,Consolas,monospace;
+    overflow:auto; white-space:pre-wrap;
+  }
+  #fatal.show{display:block}
+  #fatal h1{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#e8b36a;margin:0 0 18px}
+  #fatal .hint{color:#8e8574;margin-top:20px}
+
   #hud-lock-hint{
     position:absolute; left:50%; bottom:64px; transform:translateX(-50%);
     padding:7px 15px; border-radius:20px;
@@ -77,6 +88,7 @@
 </style></head>
 <body>
 <canvas id="c"></canvas>
+<div id="fatal"><h1>Poolcore could not start</h1><div id="fatal-body"></div></div>
 
 <div id="hud">
   <div class="panel" id="hud-title"><b>poolcore</b> &nbsp;·&nbsp; webgl2 deferred</div>
@@ -118,5 +130,40 @@
   </div>
 </div>
 
-<script type="module" src="./src/app.js"></script>
+<script>
+  // Surface failures on the page itself. Shader compile errors and WebGL2
+  // unavailability previously only reached the console, which made a black
+  // screen impossible to diagnose from a screenshot.
+  (function () {
+    var shown = false;
+    function show(title, detail) {
+      if (shown) return;
+      shown = true;
+      var box = document.getElementById('fatal');
+      var body = document.getElementById('fatal-body');
+      if (!box || !body) return;
+      body.textContent = (title ? title + '\n\n' : '') + (detail || '');
+      box.classList.add('show');
+    }
+    window.__FATAL__ = show;
+    window.addEventListener('error', function (e) {
+      show(e.message || 'Script error', (e.error && e.error.stack) || (e.filename + ':' + e.lineno));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason;
+      show('Unhandled rejection', (r && (r.stack || r.message)) || String(r));
+    });
+    // Give the app a few seconds; if it never reports ready, say so.
+    setTimeout(function () {
+      if (!window.__READY__ && !shown) {
+        show('Renderer did not start',
+          'window.__READY__ was never set.\n\n' +
+          'BOOT: ' + (window.__BOOT__ || '(none)') + '\n\n' +
+          'This usually means WebGL2 is unavailable, or a shader failed to compile.\n' +
+          'Open the browser console (F12) for the full log.');
+      }
+    }, 20000);
+  })();
+  </script>
+  <script type="module" src="./src/app.js"></script>
 </body></html>

@@ -127,26 +127,34 @@ void main() {
   // same slope through the mids but fade the operation out as we approach black
   // so the toe survives instead of being clipped flat.
   {
-    vec3 hi = 0.36 + (col - 0.36) * 1.14;
+    // Reduced from 1.14. Dreamcore is low-contrast: the whole image should sit
+    // in a narrow band, which is what makes it feel airless and unreal.
+    vec3 hi = 0.36 + (col - 0.36) * 1.05;
     col = mix(col, hi, smoothstep(0.0, 0.16, l));
   }
-  // Split toning, inverted from the old look: poolcore has WARM shadows and a
-  // neutral-cool highlight roll-off. The previous grade pushed blue into the
-  // darks (0.89, 0.96, 1.10), which is exactly the modern-cinema look this style
-  // is the opposite of.
-  vec3 shadowTint = vec3(1.075, 1.020, 0.885);
-  vec3 highTint   = vec3(1.010, 1.000, 0.958);
+  // Split toning: violet-blue shadows, sickly warm highlights. With the room now
+  // lit mostly by shafts rather than fill, pushing the darks toward violet is what
+  // makes the dim areas read as dreamlike instead of merely underexposed.
+  vec3 shadowTint = vec3(0.855, 0.880, 1.135);
+  vec3 highTint   = vec3(1.045, 1.018, 0.930);
   col *= mix(shadowTint, highTint, smoothstep(0.08, 0.66, l));
   // filmic shoulder so highlights roll off instead of clipping flat
   col = clamp(col, 0.0, 1.0);
-  col = col - 0.055 * col * col * col;
+  // Stronger shoulder: the emissive window panes must roll off softly rather
+  // than clip to flat white, which was the most obviously "overexposed" part.
+  col = col - 0.130 * col * col * col;
   // gentle lift so shadows are not crushed to pure black
   col = col * 0.995 + vec3(0.0012, 0.0022, 0.0045) * (1.0 - smoothstep(0.0, 0.30, l));
   col = clamp(col, 0.0, 1.0);
 
-  // vignette
-  float vig = 1.0 - uVignette * smoothstep(0.04, 0.92, r2 * 1.95);
+  // Vignette, pushed hard. A deep falloff at the frame edge is one of the most
+  // reliable dreamcore cues: the image stops being a window and starts being a
+  // remembered fragment. It also hides the flat, evenly-lit corners that were
+  // reading as overexposed.
+  float vig = 1.0 - uVignette * smoothstep(0.02, 1.05, r2 * 2.30);
   col *= vig;
+  // A second, wider pass: even the mid-frame edges drop off.
+  col *= 1.0 - 0.22 * smoothstep(0.10, 0.95, r2 * 2.60);
 
   col = pow(max(col, 0.0), vec3(1.0 / 2.2));
 

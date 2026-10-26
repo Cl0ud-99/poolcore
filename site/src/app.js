@@ -79,13 +79,13 @@ async function boot() {
   renderer.bakeEnv(512);
 
   // live tuning hooks (?env=2&sun=1.2&exp=1.1&bloom=0.12&ssr=1)
-  renderer.envIntensity = num('env', 0.26);
+  renderer.envIntensity = num('env', 0.16);
   renderer.sunScale = num('sun', 1.0);
-  renderer.exposure = num('exp', 0.335);
+  renderer.exposure = num('exp', 0.215);
   renderer.bloomStr = num('bloom', renderer.bloomStr);
   renderer.ssrOn = num('ssr', 1.0);
   renderer.shadowOn = num('sh', 1.0);
-  renderer.fogAmount = num('fog', 0.42);
+  renderer.fogAmount = num('fog', 0.58);
   renderer.lightScale = num('ls', renderer.lightScale);
   renderer.portalScale = num('ps', renderer.portalScale);
   renderer.sunColor = renderer.sunColor.map(c => c * renderer.sunScale);
@@ -95,7 +95,7 @@ async function boot() {
   renderer.volOn = num('vol', 1.0);
   renderer.giStrength = num('gis', 1.0);
   renderer.volStrength = num('vols', 1.0);
-  renderer.volDensity = num('vold', 0.42);
+  renderer.volDensity = num('vold', 0.62);
   renderer.volAniso = num('vaniso', 0.72);
   renderer.volScatter = num('vscat', 1.5);
   renderer.volHazeY = num('vhaze', 0.30);
@@ -114,9 +114,9 @@ async function boot() {
   // The hall is a closed white-tiled box: its upper hemisphere is a lit vault,
   // not open sky, so both lobes have to be tunable side by side.
   renderer.skyColor = (Q.get('sky') || '').split(',').map(parseFloat).filter(v => isFinite(v));
-  if (renderer.skyColor.length !== 3) renderer.skyColor = [0.315, 0.290, 0.205];
+  if (renderer.skyColor.length !== 3) renderer.skyColor = [0.175, 0.160, 0.112];
   renderer.groundColor = (Q.get('gnd') || '').split(',').map(parseFloat).filter(v => isFinite(v));
-  if (renderer.groundColor.length !== 3) renderer.groundColor = [0.760, 0.700, 0.560];
+  if (renderer.groundColor.length !== 3) renderer.groundColor = [0.470, 0.430, 0.335];
   if (Q.get('focus') !== null) { FOCUS_OVERRIDE = true; renderer.focusDist = num('focus', 9.0); }
   setShot(SHOT || 'hero');
 
@@ -502,6 +502,10 @@ const APP = {
 window.__APP__ = APP;
 
 boot().catch((e) => {
-  window.__BOOT__ = String((e && e.stack) || e);
+  const msg = String((e && e.stack) || e);
+  window.__BOOT__ = msg;
   console.error('BOOT FAIL', e);
+  // Show it on the page as well - a failed boot previously produced a silent
+  // black canvas with the reason buried in the console.
+  if (window.__FATAL__) window.__FATAL__('Boot failed', msg);
 });
