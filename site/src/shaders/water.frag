@@ -339,6 +339,11 @@ void main() {
       vec3 lp = uLightPos[i].xyz;
       vec3 lv = lp - surfP;
       float d2 = dot(lv, lv);
+      // Range cut before any BRDF work. The glitter term uses win = 1/(d2 + 0.6),
+      // so a lamp 30 m away contributes ~1e-3 of a term that is already scaled by
+      // a tight specular lobe - invisible. Most of the 48 lights are out of range
+      // at any given point on the pool.
+      if (d2 > 260.0) continue;
       vec3 l = lv * inversesqrt(max(d2, 1e-6));
       float NoLl = max(dot(N, l), 0.0);
       if (NoLl <= 0.0) continue;

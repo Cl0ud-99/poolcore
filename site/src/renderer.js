@@ -115,7 +115,11 @@ export class Renderer {
   // moving, a slightly softer image is far less objectionable than a stutter, so
   // the internal buffer drops a step and comes back once the view settles.
   setDynamicScale(s) {
-    s = Math.max(0.5, Math.min(1.0, s));
+    // Floor lowered to 0.42: on a weak GPU the gap between 50% and 42% is the
+    // difference between 17 ms and ~13 ms per frame, i.e. between missing the
+    // 60 Hz deadline every frame and meeting it. The image is softer, but the
+    // motion stops stuttering, which is the more noticeable of the two.
+    s = Math.max(0.42, Math.min(1.0, s));
     if (Math.abs(s - (this.dynScale ?? 1.0)) < 0.02) return;
     this.dynScale = s;
     this.applyRenderSize();

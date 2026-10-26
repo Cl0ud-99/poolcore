@@ -185,11 +185,29 @@ function loop(now) {
     const avg = perfAcc.reduce((x, y) => x + y, 0) / perfAcc.length;
     const cur = renderer.dynScale ?? 1.0;
     let next = cur;
-    // Targets 60 fps. Drop as soon as the average frame exceeds ~19 ms (52 fps)
-    // and only climb back below 14 ms (71 fps), so the scale settles instead of
-    // oscillating between two sizes and pulsing.
-    if (avg > 19 && cur > 0.5) next = cur - 0.08;
-    else if (avg < 14 && cur < 1.0) next = cur + 0.04;
+    // ---- adaptive resolution, tuned for vsync stability, not average fps ----
+    //
+    // With vsync on, a frame that takes 17.1 ms on a 60 Hz display misses the
+    // 16.67 ms deadline, so it waits for the next one and is presented 33.3 ms
+    // later. The average can read a healthy 58 fps while the motion visibly
+    // stutters, because some frames are being doubled.
+    //
+    // The old thresholds (drop above 19 ms, climb below 14 ms) left a dead zone
+    // that 17.1 ms fell into: too fast to trigger a drop, too slow to climb, so
+    // the scale parked at 76% and the judder never went away.
+    //
+    // Budget is now 16.67 ms with headroom: drop above 15.5 ms, climb below
+    // 12.5 ms. The gap between them keeps the scale from oscillating.
+    const FRAME_BUDGET = 15.5;
+    const FRAME_HEADROOM = 12.5;
+    if (avg > FRAME_BUDGET && cur > 0.42) {
+      // Step harder when far over budget, so a bad frame does not crawl down
+      // one notch at a time.
+      const over = avg / FRAME_BUDGET;
+      next = cur - (over > 1.35 ? 0.12 : 0.06);
+    } else if (avg < FRAME_HEADROOM && cur < 1.0) {
+      next = cur + 0.03;
+    }
     if (next !== cur) { renderer.setDynamicScale(next); perfAcc.length = 0; }
   }
   requestAnimationFrame(loop);

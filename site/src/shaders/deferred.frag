@@ -114,8 +114,11 @@ vec3 traceSSR(vec3 P, vec3 R, float rough, out float hitAmt) {
   float maxDist = 34.0;
   float t = 0.05 + ign(gl_FragCoord.xy * 3.1) * 0.06;
   vec3 prev = P;
-  for (int i = 0; i < 56; i++) {
-    t += max(0.035, t * 0.05);
+  // 32 steps instead of 56. The march only needs to bracket the hit - the
+  // 8-iteration binary search immediately after it refines the exact contact
+  // point - so the finer march was redundant work on every glossy pixel.
+  for (int i = 0; i < 32; i++) {
+    t += max(0.05, t * 0.075);
     if (t > maxDist) break;
     vec3 Q = P + R * t;
     vec4 cp = uVP * vec4(Q, 1.0);
