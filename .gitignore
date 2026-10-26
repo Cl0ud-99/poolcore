@@ -1,0 +1,37 @@
+# ---- dependencies ----
+node_modules/
+.pnpm-store/
+
+# ---- build / tool caches ----
+.npm-cache/
+dist/
+build/
+*.tsbuildinfo
+
+# ---- local dev server artifacts ----
+serve.log
+serve.log.err
+*.log
+
+# ---- TLS material ----
+# The dev key is a PRIVATE KEY. It must never enter the repository.
+# Regenerate a local pair with: node tools/gen-cert.mjs
+tools/dev-key.pem
+tools/dev-cert.pem
+*.pem
+*.key
+*.crt
+
+# ---- debug screenshots ----
+# ~588 MB of parameter-sweep captures used while tuning the renderer.
+# They are working files, not source. Keep a handful for docs if you want:
+#   !shots/hero.png
+shots/
+
+# ---- OS / editor noise ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

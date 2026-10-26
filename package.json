@@ -1,0 +1,16 @@
+{
+  "name": "poolcore",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/serve.mjs",
+    "shot": "node tools/shot.mjs"
+  },
+  "dependencies": {
+    "selfsigned": "^5.5.0"
+  },
+  "devDependencies": {
+    "playwright-core": "1.48.2"
+  }
+}

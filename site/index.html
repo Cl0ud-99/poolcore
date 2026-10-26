@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Poolcore</title>
+<style>
+  html,body{margin:0;height:100%;background:#05070a;overflow:hidden}
+  canvas{display:block;width:100%;height:100%;cursor:none}
+  /* Nothing on the canvas is clickable: it is a camera view. Hide the pointer
+     outright so it never sits over the render, locked or not. */
+  #c{cursor:none !important}
+
+  /* ---------------- HUD ---------------- */
+  #hud{
+    position:fixed; inset:0; pointer-events:none;
+    contain:layout style paint;
+    font:12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color:#c3cedb; letter-spacing:.01em;
+    text-shadow:0 1px 2px rgba(0,0,0,.85);
+  }
+  #hud .panel{
+    position:absolute;
+    background:rgba(7,11,16,.86);
+    border:1px solid rgba(140,180,215,.16);
+    border-radius:7px;
+    padding:11px 13px;
+    box-shadow:0 6px 22px rgba(0,0,0,.42);
+  }
+  #hud h2{
+    margin:0 0 8px; font-size:10px; font-weight:600;
+    letter-spacing:.16em; text-transform:uppercase;
+    color:#7d8fa4;
+  }
+  #hud table{border-collapse:collapse}
+  #hud td{padding:1.5px 0; vertical-align:top}
+  #hud td.k{padding-right:11px; white-space:nowrap}
+  #hud td.d{color:#8e9cae}
+  kbd{
+    display:inline-block; min-width:15px; padding:1px 5px;
+    font:inherit; font-size:11px; text-align:center;
+    color:#dfe8f2;
+    background:rgba(255,255,255,.075);
+    border:1px solid rgba(255,255,255,.16);
+    border-bottom-color:rgba(255,255,255,.08);
+    border-radius:4px;
+  }
+
+  #hud-hints{left:16px; bottom:16px; min-width:232px}
+  #hud-readout{right:16px; top:16px; min-width:150px}
+  #hud-readout .row{display:flex; justify-content:space-between; gap:14px}
+  #hud-readout .v{color:#9fd0e8; font-variant-numeric:tabular-nums}
+  #hud-readout .warn{color:#e8b36a}
+  #hud-readout .ok{color:#7fd6a2}
+
+  #hud-title{
+    left:16px; top:16px; padding:9px 13px;
+    font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:#8fa3b8;
+  }
+  #hud-title b{color:#dce7f2; font-weight:600; letter-spacing:.18em}
+
+  #hud-help{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    max-width:430px; display:none;
+  }
+  #hud-help.show{display:block}
+  #hud-help p{margin:0 0 9px; color:#8e9cae}
+  #hud-help p:last-child{margin-bottom:0}
+
+  .hidden{display:none !important}
+
+  #hud-lock-hint{
+    position:absolute; left:50%; bottom:64px; transform:translateX(-50%);
+    padding:7px 15px; border-radius:20px;
+    background:rgba(7,11,16,.86);
+    border:1px solid rgba(140,180,215,.22);
+    color:#9fb2c6; font-size:11.5px; letter-spacing:.06em;
+    animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+</style></head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="panel" id="hud-title"><b>poolcore</b> &nbsp;·&nbsp; webgl2 deferred</div>
+
+  <div class="panel" id="hud-readout">
+    <h2>Runtime</h2>
+    <div class="row"><span>fps</span><span class="v" id="rd-fps">--</span></div>
+    <div class="row"><span>gpu/cpu</span><span class="v" id="rd-ms">--</span></div>
+    <div class="row"><span>tris</span><span class="v" id="rd-tris">--</span></div>
+    <div class="row"><span>pos</span><span class="v" id="rd-pos">--</span></div>
+    <div class="row"><span>fov</span><span class="v" id="rd-fov">--</span></div>
+    <div class="row"><span>scale</span><span class="v" id="rd-scale">--</span></div>
+    <div class="row"><span>look</span><span class="v" id="rd-look">--</span></div>
+  </div>
+
+  <div class="panel" id="hud-hints">
+    <h2>Controls</h2>
+    <table>
+      <tr><td class="k"><kbd>Mouse</kbd></td><td class="d">look around</td></tr>
+      <tr><td class="k"><kbd>Click</kbd></td><td class="d">capture cursor (localhost only)</td></tr>
+      <tr><td class="k"><kbd>Esc</kbd></td><td class="d">release cursor</td></tr>
+      <tr><td class="k"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td><td class="d">move</td></tr>
+      <tr><td class="k"><kbd>Ctrl</kbd></td><td class="d">descend</td></tr>
+      <tr><td class="k"><kbd>E</kbd> / <kbd>Space</kbd></td><td class="d">ascend</td></tr>
+      <tr><td class="k"><kbd>Shift</kbd></td><td class="d">run</td></tr>
+      <tr><td class="k"><kbd>Wheel</kbd></td><td class="d">zoom</td></tr>
+      <tr><td class="k"><kbd>H</kbd></td><td class="d">toggle this panel</td></tr>
+      <tr><td class="k"><kbd>1</kbd>–<kbd>9</kbd></td><td class="d">jump to preset view</td></tr>
+    </table>
+  </div>
+
+  <div id="hud-lock-hint" class="lock-hint">click to capture the cursor</div>
+
+  <div class="panel" id="hud-help">
+    <h2>Look mode</h2>
+    <p id="hud-lock-note"></p>
+    <p>Press <kbd>H</kbd> to hide the controls panel.</p>
+    <p id="hud-help-err" class="warn"></p>
+  </div>
+</div>
+
+<script type="module" src="./src/app.js"></script>
+</body></html>

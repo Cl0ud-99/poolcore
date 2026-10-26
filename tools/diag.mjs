@@ -1,0 +1,13 @@
+import { chromium } from 'playwright-core';
+const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox','--disable-gpu-sandbox','--ignore-gpu-blocklist','--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+const logs = [];
+page.on('pageerror', e => logs.push('PAGEERROR ' + e.message));
+page.on('console', m => logs.push(m.type().toUpperCase() + ' ' + m.text()));
+page.on('requestfailed', r => logs.push('REQFAIL ' + r.url() + ' ' + (r.failure()||{}).errorText));
+await page.goto('http://127.0.0.1:5273/?shot=hero', { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(25000);
+const st = await page.evaluate(() => ({ boot: window.__BOOT__ || null, ready: window.__READY__ || false, stats: window.__APP__ ? window.__APP__.stats() : null }));
+console.log(JSON.stringify({ st, logs: logs.slice(0, 40) }, null, 1));
+await browser.close();
