@@ -61,6 +61,7 @@ async function boot() {
   await renderer.ready;
   renderer.setSize(w, h);
   GPUTimer.init(renderer.gl);
+  GPUInfo.init(renderer.gl);
   renderer.dynScale = 1.0;
   renderer._userScale = SCALE;
   // Supersampling factor. 1.25 is a good default; ?ss=1 disables it on weak GPUs,
@@ -187,6 +188,37 @@ const GPUTimer = (() => {
   }
 
   return { init, begin, end, poll, get ms() { return lastMs; }, get supported() { return supported; } };
+})();
+
+
+// ============================================================
+//  GPU identification: which adapter is actually rendering?
+// ============================================================
+// On a hybrid-graphics laptop the browser can silently pick the integrated GPU,
+// and no amount of shader optimisation will help. WEBGL_debug_renderer_info
+// exposes the adapter string that the WebGL context really bound to, which is
+// the only reliable way to tell from inside the page.
+const GPUInfo = (() => {
+  let name = 'unknown';
+  let vendor = 'unknown';
+  let software = false;
+
+  function init(gl) {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    if (ext) {
+      name = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || 'unknown';
+      vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || 'unknown';
+    } else {
+      name = gl.getParameter(gl.RENDERER) || 'unknown';
+      vendor = gl.getParameter(gl.VENDOR) || 'unknown';
+    }
+    // SwiftShader / llvmpipe mean the browser fell back to CPU rasterisation.
+    software = /swiftshader|llvmpipe|software|basic render/i.test(name);
+    console.log('[poolcore] GPU:', vendor, '/', name, software ? '(SOFTWARE!)' : '');
+    return { name, vendor, software };
+  }
+
+  return { init, get name() { return name; }, get vendor() { return vendor; }, get software() { return software; } };
 })();
 
 function loop(now) {
@@ -476,7 +508,7 @@ const HUD = (() => {
   const $ = (id) => document.getElementById(id);
   const el = {
     fps: $('rd-fps'), ms: $('rd-ms'), tris: $('rd-tris'),
-    pos: $('rd-pos'), fov: $('rd-fov'), scale: $('rd-scale'),
+    pos: $('rd-pos'), fov: $('rd-fov'), scale: $('rd-scale'), gpu: $('rd-gpu'),
     hints: $('hud-hints'), help: $('hud-help'), helpErr: $('hud-help-err'),
   };
   let hintsOn = true;
@@ -507,6 +539,18 @@ const HUD = (() => {
       // shaders - it is the browser compositor, vsync waiting, or the canvas size.
       const g = stats.gpuTimer ? (stats.gpuMs ?? 0).toFixed(1) : 'n/a';
       el.ms.textContent = stats.ms.toFixed(1) + ' / ' + g + ' / ' + (stats.cpuMs ?? 0).toFixed(1);
+    }
+    if (el.gpu) {
+      // Trim the long driver string to something readable; the full value is in
+      // the console and in __APP__.stats().
+      let g = (stats.gpuName || 'unknown');
+      g = g.replace(/^ANGLE \(/, '').replace(/\)$/, '');
+      const m = g.match(/(NVIDIA[^,]*|AMD[^,]*|Intel[^,]*|Apple[^,]*|Mali[^,]*|Adreno[^,]*)/i);
+      if (m) g = m[1];
+      g = g.replace(/Direct3D\d+/i, 'D3D').trim();
+      if (g.length > 26) g = g.slice(0, 25) + '\u2026';
+      el.gpu.textContent = g;
+      el.gpu.className = 'v' + (stats.gpuSoftware ? ' warn' : '');
     }
     if (el.scale) {
       const s = Math.round((stats.scale ?? 1) * 100);
@@ -564,6 +608,8 @@ const APP = {
       cpuMs: +cpuAvg.toFixed(2),
       gpuMs: +GPUTimer.ms.toFixed(2),
       gpuTimer: GPUTimer.supported,
+      gpuName: GPUInfo.name,
+      gpuSoftware: GPUInfo.software,
       scale: renderer ? (renderer.dynScale ?? 1) : 1,
       w: renderer ? renderer.w : 0,
       h: renderer ? renderer.h : 0,
