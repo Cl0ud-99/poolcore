@@ -4,6 +4,13 @@ A hand-written WebGL2 renderer for a liminal indoor swimming pool — warm, aged
 slightly wrong. No engine, no imported models, no texture files: every surface and
 every piece of geometry is generated procedurally at load time.
 
+**[▶ Live preview](https://cl0ud-99.github.io/poolcore/)** — runs in the browser,
+nothing to install. Click the view once to capture the cursor.
+
+> Needs a desktop GPU and a WebGL2-capable browser. On integrated graphics the
+> renderer drops its internal resolution automatically; the `scale` row in the
+> HUD shows the current percentage.
+
 ![hero](docs/hero.png)
 
 <sub>Captured before the final warm-palette pass; the current build is warmer and
@@ -109,6 +116,17 @@ Every look parameter is tunable without a rebuild:
 ?gnd=0.760,0.700,0.560
 ?dbg=1..13     debug views
 ```
+
+## Deployment
+
+Pushing to `main` builds and publishes the site to GitHub Pages via
+`.github/workflows/deploy.yml`. There is no build step — the workflow copies
+`site/` straight into the Pages artifact, after asserting that `index.html`,
+`src/app.js` and `src/shaders/` are all present so a broken tree fails the job
+instead of deploying a page that cannot load.
+
+All asset paths are relative (`./src/...`), so the site works both at a domain
+root and under the `/poolcore/` sub-path that Pages uses.
 
 ## Screenshots
 
