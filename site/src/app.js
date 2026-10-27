@@ -316,8 +316,17 @@ function loop(now) {
     //
     // Budget is now 16.67 ms with headroom: drop above 15.5 ms, climb below
     // 12.5 ms. The gap between them keeps the scale from oscillating.
-    const FRAME_BUDGET = 15.5;
-    const FRAME_HEADROOM = 12.5;
+    // Drop above the budget, climb just below it. The previous pair (15.5 / 12.5)
+    // left a 3 ms dead zone, and a machine running at ~13.7 ms sat inside it
+    // forever: too slow to climb, too fast to drop. Once the scale dipped it never
+    // came back, which is why it settled low.
+    //
+    // The band is now narrow (14.9 / 13.9) so the scaler keeps probing upward
+    // while there is headroom to the 16.67 ms vsync deadline. A climb that proves
+    // too expensive pushes the average past 14.9 within a couple of frames and it
+    // drops straight back, so the narrower band does not cause oscillation.
+    const FRAME_BUDGET = 14.9;
+    const FRAME_HEADROOM = 13.9;
 
     // Cooldown. Changing the render size destroys and recreates ~37 GL objects
     // (every FBO, every texture, every depth buffer) and forces TAA to rebuild
@@ -332,10 +341,23 @@ function loop(now) {
     if (scaleCooldown > 0) {
       scaleCooldown--;
     } else if (avg > FRAME_BUDGET && cur > 0.42) {
+      // Drop proportionally to the overshoot, so a badly over-budget frame does
+      // not crawl down one notch at a time.
       const over = avg / FRAME_BUDGET;
       next = cur - (over > 1.35 ? 0.12 : 0.06);
     } else if (avg < FRAME_HEADROOM && cur < 1.0) {
-      next = cur + 0.03;
+      // Predictive climb. Frame cost scales with pixel count, so raising the
+      // scale from s to s' multiplies frame time by (s'/s)^2. Estimate the result
+      // and only step up if the PREDICTED time still fits the budget.
+      //
+      // Without this the scaler oscillated around its target and could never
+      // settle: at ~0.85 scale, one 0.05 step changes frame time by about 1.6 ms
+      // (d(cost)/ds = 2 * fullResMs * s), which is wider than the 1.0 ms band
+      // between the climb and drop thresholds. Every climb overshot, every
+      // overshoot dropped back, forever.
+      const step = 0.05;
+      const projected = avg * ((cur + step) / cur) * ((cur + step) / cur);
+      if (projected < FRAME_BUDGET) next = cur + step;
     }
     if (next !== cur) {
       renderer.setDynamicScale(next);
