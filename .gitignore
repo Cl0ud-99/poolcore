@@ -23,10 +23,9 @@ tools/dev-cert.pem
 *.crt
 
 # ---- debug screenshots ----
-# ~588 MB of parameter-sweep captures used while tuning the renderer.
-# They are working files, not source. Keep a handful for docs if you want:
-#   !shots/hero.png
-shots/
+# ~590 MB of parameter-sweep captures used while tuning the renderer.
+# Anchored to the repo root so it cannot also swallow docs/shots/.
+/shots/
 
 # ---- OS / editor noise ----
 .DS_Store

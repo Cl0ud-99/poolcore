@@ -224,6 +224,12 @@ async function boot() {
     if (document.hidden) ambience.suspend(); else ambience.resume();
   });
 
+  // ?hud=0 hides every overlay for documentation screenshots.
+  if (num('hud', 1) === 0) {
+    const hudEl = document.getElementById('hud');
+    if (hudEl) hudEl.classList.add('hidden');
+  }
+
   Loader.set('final', 1);
   Loader.finish();
 
