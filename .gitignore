@@ -35,3 +35,6 @@ desktop.ini
 .idea/
 .vscode/
 *.swp
+
+# commit-message scratch
+COMMIT_MSG

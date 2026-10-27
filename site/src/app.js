@@ -154,6 +154,7 @@ async function boot() {
 
 let hudAcc = 0;
 const perfAcc = [];
+let scaleCooldown = 0;   // frames to wait after a resolution change
 const cpuFrames = [];
 let lastFrameT = 0;
 
@@ -328,9 +329,8 @@ function loop(now) {
     //
     // After any change we now ignore frame times for a settling period, so each
     // step gets a chance to be measured before another is applied.
-    if (this._scaleCooldown === undefined) this._scaleCooldown = 0;
-    if (this._scaleCooldown > 0) {
-      this._scaleCooldown--;
+    if (scaleCooldown > 0) {
+      scaleCooldown--;
     } else if (avg > FRAME_BUDGET && cur > 0.42) {
       const over = avg / FRAME_BUDGET;
       next = cur - (over > 1.35 ? 0.12 : 0.06);
@@ -342,7 +342,7 @@ function loop(now) {
       perfAcc.length = 0;
       // ~0.5 s at 60 fps. Long enough for the reallocation spike to leave the
       // 30-sample window, short enough to still react within a second.
-      this._scaleCooldown = 30;
+      scaleCooldown = 30;
     }
   }
   requestAnimationFrame(loop);
