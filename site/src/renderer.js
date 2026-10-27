@@ -8,6 +8,10 @@ import { WATER_Y, POOL } from './level.js';
 
 const SHADOW_SIZE = 4096;
 
+// Discrete render-scale steps. Shared with app.js so the adaptive policy and the
+// sizes the renderer will allocate can never disagree.
+export const SCALE_LADDER = [0.45, 0.55, 0.65, 0.72, 0.80, 0.88, 1.0];
+
 const CUBE_DIRS = [
   [[1,0,0], [0,-1,0], [0,0,-1]],
   [[-1,0,0], [0,-1,0], [0,0,1]],
@@ -115,13 +119,22 @@ export class Renderer {
   // moving, a slightly softer image is far less objectionable than a stutter, so
   // the internal buffer drops a step and comes back once the view settles.
   setDynamicScale(s) {
-    // Floor lowered to 0.42: on a weak GPU the gap between 50% and 42% is the
-    // difference between 17 ms and ~13 ms per frame, i.e. between missing the
-    // 60 Hz deadline every frame and meeting it. The image is softer, but the
-    // motion stops stuttering, which is the more noticeable of the two.
-    s = Math.max(0.42, Math.min(1.0, s));
-    if (Math.abs(s - (this.dynScale ?? 1.0)) < 0.02) return;
-    this.dynScale = s;
+    // QUANTISED to a fixed ladder.
+    //
+    // The full render target set is roughly 600-800 MB at a 4K-class window, and
+    // changing the size destroys and reallocates ALL of it. Adjusting by small
+    // continuous steps meant a heavily allocated, heavily freed driver path, and
+    // that is what took the context down.
+    //
+    // Snapping to a ladder means adjacent frames very often request the same
+    // size, so a change is a rare event rather than a per-frame one, and the
+    // driver stays on a small set of well-used allocations.
+    let snapped = SCALE_LADDER[0];
+    for (const v of SCALE_LADDER) {
+      if (s >= v - 0.001) snapped = v;
+    }
+    if (snapped === this.dynScale) return;   // exact compare: no no-op reallocation
+    this.dynScale = snapped;
     this.applyRenderSize();
   }
 

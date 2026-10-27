@@ -1,7 +1,7 @@
 // ============================================================
 //  App entry: build level, bake probes, run the render loop
 // ============================================================
-import { Renderer } from './renderer.js';
+import { Renderer, SCALE_LADDER } from './renderer.js';
 import { buildLevel, WATER_Y, HALL } from './level.js';
 import { V3, clamp } from './math.js';
 import { Ambience } from './audio.js';
@@ -62,6 +62,7 @@ async function boot() {
   renderer = new Renderer(canvas);
   await renderer.ready;
   renderer.setSize(w, h);
+  installContextLossHandling(renderer.gl);
   GPUTimer.init(renderer.gl);
   GPUInfo.init(renderer.gl);
   renderer.dynScale = 1.0;
@@ -256,6 +257,34 @@ const GPUInfo = (() => {
   return { init, get name() { return name; }, get vendor() { return vendor; }, get software() { return software; } };
 })();
 
+
+// ============================================================
+//  WebGL context loss
+// ============================================================
+// A lost context is what a user experiences as "the page crashed": the canvas
+// freezes or goes black and nothing recovers it. Every texture, framebuffer and
+// program is invalid after the event, so a full rebuild would be required - the
+// practical fix is to surface it and offer a reload.
+function installContextLossHandling(gl) {
+  let lost = false;
+  gl.canvas.addEventListener('webglcontextlost', (e) => {
+    // Preventing the default is what allows a restore event to fire at all.
+    e.preventDefault();
+    lost = true;
+    if (window.__FATAL__) {
+      window.__FATAL__('WebGL context lost',
+        'The GPU dropped this context. This usually means it ran out of video\n' +
+        'memory or the driver reset.\n\n' +
+        'Reload the page to continue. If it keeps happening, try a smaller\n' +
+        'window, or lower the resolution with ?ss=0.75 in the URL.\n\n' +
+        'Render size at the time: ' + gl.drawingBufferWidth + ' x ' + gl.drawingBufferHeight);
+    }
+  });
+  gl.canvas.addEventListener('webglcontextrestored', () => {
+    if (lost) location.reload();
+  });
+}
+
 function loop(now) {
   const t = (performance.now() - t0) / 1000;
   renderer.time = t;
@@ -338,26 +367,25 @@ function loop(now) {
     //
     // After any change we now ignore frame times for a settling period, so each
     // step gets a chance to be measured before another is applied.
+    // The scale is a fixed ladder (see Renderer.setDynamicScale), so this picks
+    // the next rung rather than nudging a continuous value. Coarser steps are
+    // deliberate: every change reallocates the whole render target set.
+    const LADDER = SCALE_LADDER;
+    let idx = 0;
+    for (let k = 0; k < LADDER.length; k++) if (cur >= LADDER[k] - 0.001) idx = k;
+
     if (scaleCooldown > 0) {
       scaleCooldown--;
-    } else if (avg > FRAME_BUDGET && cur > 0.42) {
-      // Drop proportionally to the overshoot, so a badly over-budget frame does
-      // not crawl down one notch at a time.
-      const over = avg / FRAME_BUDGET;
-      next = cur - (over > 1.35 ? 0.12 : 0.06);
-    } else if (avg < FRAME_HEADROOM && cur < 1.0) {
-      // Predictive climb. Frame cost scales with pixel count, so raising the
-      // scale from s to s' multiplies frame time by (s'/s)^2. Estimate the result
-      // and only step up if the PREDICTED time still fits the budget.
-      //
-      // Without this the scaler oscillated around its target and could never
-      // settle: at ~0.85 scale, one 0.05 step changes frame time by about 1.6 ms
-      // (d(cost)/ds = 2 * fullResMs * s), which is wider than the 1.0 ms band
-      // between the climb and drop thresholds. Every climb overshot, every
-      // overshoot dropped back, forever.
-      const step = 0.05;
-      const projected = avg * ((cur + step) / cur) * ((cur + step) / cur);
-      if (projected < FRAME_BUDGET) next = cur + step;
+    } else if (avg > FRAME_BUDGET && idx > 0) {
+      next = LADDER[idx - 1];
+    } else if (avg < FRAME_HEADROOM && idx < LADDER.length - 1) {
+      // Predictive climb: frame cost scales with pixel count, so raising the
+      // scale from s to s2 multiplies frame time by (s2/s)^2. Step up only if the
+      // projected time still fits. Without this check a climb on a machine that
+      // is already near the budget would immediately overshoot and drop back.
+      const s2 = LADDER[idx + 1];
+      const projected = avg * (s2 / cur) * (s2 / cur);
+      if (projected < FRAME_BUDGET) next = s2;
     }
     if (next !== cur) {
       renderer.setDynamicScale(next);
