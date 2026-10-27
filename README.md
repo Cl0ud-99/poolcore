@@ -2,6 +2,8 @@
 
 **by DeepSeek-V4.1flash-1017**
 
+**10 Rounds**
+
 **100M Tokens**
 
 [**Live preview**](https://cl0ud-99.github.io/poolcore/) — runs in the browser, nothing to install.
