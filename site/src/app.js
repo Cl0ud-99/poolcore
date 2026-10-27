@@ -4,6 +4,7 @@
 import { Renderer } from './renderer.js';
 import { buildLevel, WATER_Y, HALL } from './level.js';
 import { V3, clamp } from './math.js';
+import { Ambience } from './audio.js';
 
 const Q = new URLSearchParams(location.search);
 const SCALE = parseFloat(Q.get('scale') || '1');
@@ -27,6 +28,7 @@ const SHOTS = {
 };
 
 const canvas = document.getElementById('c');
+const ambience = new Ambience();
 let renderer = null, cam = null;
 const t0 = performance.now();
 let readyMs = 0;
@@ -111,6 +113,11 @@ async function boot() {
   // White diffusion. Kept low by default: a little reads as soft glass, a lot
   // reads as a smeared lens.
   renderer.softAmt = num('soft', 0.22);
+
+  // Ambience. Volume is a URL parameter so the mix can be judged without a
+  // rebuild; 0 disables it entirely. Audio cannot start until the user
+  // interacts, so this only stores the level - playback begins on first click.
+  ambience.setVolume(num('vol', 0.55));
   if (Q.get('sundir') !== null) {
     const sd = Q.get('sundir').split(',').map(parseFloat);
     if (sd.length === 3 && sd.every(v => isFinite(v))) renderer.sunDir = V3.norm(sd);
@@ -133,6 +140,12 @@ async function boot() {
   window.addEventListener('resize', () => {
     const s = fitCanvas();
     renderer.setSize(s.w, s.h);
+  });
+
+  // Do not keep the room humming in a background tab.
+  document.addEventListener('visibilitychange', () => {
+    if (!ambience.started) return;
+    if (document.hidden) ambience.suspend(); else ambience.resume();
   });
 
   installInput();
@@ -304,15 +317,33 @@ function loop(now) {
     // 12.5 ms. The gap between them keeps the scale from oscillating.
     const FRAME_BUDGET = 15.5;
     const FRAME_HEADROOM = 12.5;
-    if (avg > FRAME_BUDGET && cur > 0.42) {
-      // Step harder when far over budget, so a bad frame does not crawl down
-      // one notch at a time.
+
+    // Cooldown. Changing the render size destroys and recreates ~37 GL objects
+    // (every FBO, every texture, every depth buffer) and forces TAA to rebuild
+    // its history. That frame is itself very expensive, so without a cooldown a
+    // fast camera pan - which raises frame time on its own - would trigger a
+    // drop, the drop's own cost would raise the average further, and the scaler
+    // would cascade down several steps in a row. That cascade is what showed up
+    // as tearing while panning.
+    //
+    // After any change we now ignore frame times for a settling period, so each
+    // step gets a chance to be measured before another is applied.
+    if (this._scaleCooldown === undefined) this._scaleCooldown = 0;
+    if (this._scaleCooldown > 0) {
+      this._scaleCooldown--;
+    } else if (avg > FRAME_BUDGET && cur > 0.42) {
       const over = avg / FRAME_BUDGET;
       next = cur - (over > 1.35 ? 0.12 : 0.06);
     } else if (avg < FRAME_HEADROOM && cur < 1.0) {
       next = cur + 0.03;
     }
-    if (next !== cur) { renderer.setDynamicScale(next); perfAcc.length = 0; }
+    if (next !== cur) {
+      renderer.setDynamicScale(next);
+      perfAcc.length = 0;
+      // ~0.5 s at 60 fps. Long enough for the reallocation spike to leave the
+      // 30-sample window, short enough to still react within a second.
+      this._scaleCooldown = 30;
+    }
   }
   requestAnimationFrame(loop);
 }
@@ -392,6 +423,11 @@ function installInput() {
   }
 
   // Any click captures the pointer; after Esc, clicking again re-captures.
+  // Audio is only allowed to start from a user gesture. The click that captures
+  // the pointer is the natural moment; any key press works too.
+  const startAudio = () => { try { ambience.start(); } catch (e) { console.warn('audio', e); } };
+  canvas.addEventListener('click', startAudio);
+  window.addEventListener('keydown', startAudio, { once: true });
   canvas.addEventListener('click', requestLock);
   canvas.addEventListener('mousedown', (ev) => {
     lastX = ev.clientX; lastY = ev.clientY;
@@ -458,6 +494,18 @@ function installInput() {
     if (ev.ctrlKey && SWALLOW.has(ev.code)) ev.preventDefault();
     keys[ev.code] = true;
     if (ev.code === 'KeyH') { HUD.toggleHints(); return; }
+    // Audio level, so the mix can be judged without editing the URL.
+    if (ev.code === 'BracketLeft' || ev.code === 'BracketRight') {
+      const step = ev.code === 'BracketLeft' ? -0.08 : 0.08;
+      ambience.setVolume((ambience.masterGain ?? 0.55) + step);
+      HUD.flashVolume(ambience.masterGain);
+      return;
+    }
+    if (ev.code === 'KeyM') {
+      ambience.setVolume(ambience.masterGain > 0 ? 0 : 0.55);
+      HUD.flashVolume(ambience.masterGain);
+      return;
+    }
     if (ev.code.startsWith('Digit')) {
       const n = parseInt(ev.code.slice(5), 10);
       if (n >= 1 && n <= SHOT_KEYS.length) { setShot(SHOT_KEYS[n - 1]); freeLook = true; }
@@ -539,6 +587,16 @@ const HUD = (() => {
     if (el.hints) el.hints.classList.toggle('hidden', !hintsOn);
   }
 
+  // Transient toast for actions that have no permanent readout, like volume.
+  function flashVolume(v) {
+    const el2 = $('hud-toast');
+    if (!el2) return;
+    el2.textContent = v <= 0 ? 'muted' : 'volume ' + Math.round(v * 100) + '%';
+    el2.classList.add('show');
+    clearTimeout(flashVolume._t);
+    flashVolume._t = setTimeout(() => el2.classList.remove('show'), 1400);
+  }
+
   function flashHelp(msg) {
     if (!el.help) return;
     if (el.helpErr) el.helpErr.textContent = msg || '';
@@ -614,7 +672,7 @@ const HUD = (() => {
     if (hint) hint.classList.toggle('hidden', on);
   }
 
-  return { update, toggleHints, flashHelp, setLockState, get hintsOn() { return hintsOn; } };
+  return { update, toggleHints, flashHelp, flashVolume, setLockState, get hintsOn() { return hintsOn; } };
 })();
 
 const APP = {
@@ -647,6 +705,7 @@ const APP = {
   },
 };
 window.__APP__ = APP;
+window.__AMBIENCE__ = ambience;
 
 boot().catch((e) => {
   const msg = String((e && e.stack) || e);

@@ -147,6 +147,12 @@ export class Renderer {
   buildTargets() {
     const gl = this.gl, w = this.w, h = this.h;
     if (!w || !h) return;
+    // Skip a rebuild that would produce identical buffers. The adaptive scaler
+    // can step by less than one pixel at small sizes, and a resize can fire with
+    // the same dimensions; in both cases reallocating everything - and wiping the
+    // TAA history - would cost a frame for no benefit.
+    if (this._builtW === w && this._builtH === h && this.gbuf) return;
+    this._builtW = w; this._builtH = h;
     const del = (t) => { if (t) gl.deleteTexture(t); };
     const delF = (f) => { if (f) gl.deleteFramebuffer(f.fb); };
     if (this.gbuf) {
