@@ -86,6 +86,31 @@
   }
   @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
 
+  #loader {
+    position:fixed; inset:0; z-index:50;
+    display:grid; place-items:center;
+    background:#0b0a08;
+    transition:opacity .45s ease;
+  }
+  #loader.done { opacity:0; pointer-events:none; }
+  .loader-inner { width:min(360px, 70vw); text-align:center; }
+  .loader-inner h1 {
+    margin:0 0 20px; font:600 13px/1 ui-monospace,Menlo,Consolas,monospace;
+    letter-spacing:.34em; text-transform:uppercase; color:#8fa3b8;
+  }
+  .bar {
+    height:2px; background:rgba(140,180,215,.16); border-radius:2px; overflow:hidden;
+  }
+  #loader-fill {
+    height:100%; width:0%; background:#c8b48a;
+    transition:width .18s ease;
+  }
+  .row {
+    display:flex; justify-content:space-between; margin-top:11px;
+    font:11px/1 ui-monospace,Menlo,Consolas,monospace;
+    letter-spacing:.1em; color:#6f8093;
+  }
+  #loader-pct { color:#a8967a; }
   #hud-toast {
     position:absolute; left:50%; top:62px; transform:translateX(-50%);
     padding:6px 14px; border-radius:16px;
@@ -100,6 +125,16 @@
 <canvas id="c"></canvas>
 <div id="fatal"><h1>Poolcore could not start</h1><div id="fatal-body"></div></div>
 
+<div id="loader">
+  <div class="loader-inner">
+    <h1>poolcore</h1>
+    <div class="bar"><div id="loader-fill"></div></div>
+    <div class="row">
+      <span id="loader-stage">preparing</span>
+      <span id="loader-pct">0%</span>
+    </div>
+  </div>
+</div>
 <div id="hud">
   <div class="panel" id="hud-title"><b>poolcore</b> &nbsp;·&nbsp; webgl2 deferred</div>
 

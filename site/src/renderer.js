@@ -39,6 +39,17 @@ function halton(i, b) {
   return r;
 }
 
+
+// Yield long enough for the browser to actually paint a frame. One rAF is not
+// enough: the callback runs before paint of the same frame, so a synchronous
+// loop that yields once per iteration still starves the compositor. Two rAFs
+// guarantee a paint happened in between.
+function yieldToPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
 export class Renderer {
   constructor(canvas) {
     const gl = createContext(canvas);
@@ -73,7 +84,20 @@ export class Renderer {
     this.ssaa = 1.0;
     this.dynScale = 1.0;
 
-    const txt = (n) => fetch('./src/shaders/' + n).then(r => r.text());
+    // Report real load progress. A bar that animates on a timer would be a lie;
+    // this counts actual completed shader fetches, which on a cold GitHub Pages
+    // load is the first thing the user waits for.
+    const shaderNames = [];
+    let shaderDone = 0;
+    const txt = (n) => {
+      shaderNames.push(n);
+      return fetch('./src/shaders/' + n).then(r => r.text()).then(t => {
+        shaderDone++;
+        if (this.onLoad) this.onLoad('shaders', shaderDone / shaderNames.length);
+        return t;
+      });
+    };
+    this._shaderTotal = 21;
     this.ready = Promise.all([
       txt('fs.vert'), txt('common.glsl'), txt('surface.vert'), txt('surface.frag'),
       txt('deferred.frag'), txt('ao.frag'), txt('aoBlur.frag'),
@@ -498,7 +522,7 @@ export class Renderer {
   }
 
   // ---- baked environment probe: render the room into a cube, twice ----
-  bakeEnv(size) {
+  async bakeEnv(size) {
     size = size || 256;
     const gl = this.gl;
     const realW = this.w, realH = this.h;
@@ -514,6 +538,10 @@ export class Renderer {
     const eye = [0, 2.4, 0];
     const proj = M4.perspective(M4.create(), Math.PI / 2, 1, 0.08, 220);
     const emptyCube = texCube(gl, { w: 1, internal: gl.RGBA16F });
+    // The bake is the single most expensive part of loading: 3 passes x 6 cube
+    // faces, each running the full G-buffer -> AO -> lighting chain.
+    let bakeDone = 0;
+    const bakeTotal = 3 * 6;
     for (let pass = 0; pass < 3; pass++) {
       const envIn = pass === 0 ? emptyCube : this.envCube;
       for (let f = 0; f < 6; f++) {
@@ -532,6 +560,12 @@ export class Renderer {
         gl.bindFramebuffer(gl.READ_FRAMEBUFFER, (pass > 0 ? this.bounceFBO : this.litFBO).fb);
         gl.bindTexture(gl.TEXTURE_CUBE_MAP, this.envCube);
         gl.copyTexSubImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, 0, 0, 0, 0, 0, size, size);
+        bakeDone++;
+        if (this.onLoad) this.onLoad('bake', bakeDone / bakeTotal);
+        // Hand the thread back so the progress bar can actually paint. Doing this
+        // per face rather than per pass keeps the bar moving smoothly during the
+        // longest stage of loading.
+        await yieldToPaint();
       }
       gl.bindTexture(gl.TEXTURE_CUBE_MAP, this.envCube);
       gl.generateMipmap(gl.TEXTURE_CUBE_MAP);

@@ -57,10 +57,73 @@ function setShot(name) {
   }
 }
 
+
+// ============================================================
+//  Loading progress
+// ============================================================
+// Weights reflect the real cost of each stage rather than splitting the bar
+// evenly: the environment probe bake is by far the longest step (3 passes x 6
+// cube faces, each running the full pipeline), while geometry generation and the
+// GPU upload are quick.
+//
+// The bar reports real completion of each stage, so it can sit still while the
+// GPU works instead of creeping forward on a timer.
+const Loader = (() => {
+  const STAGES = [
+    ['shaders',  'loading shaders',   0.34],
+    ['geometry', 'building level',    0.06],
+    ['upload',   'uploading mesh',    0.05],
+    ['bake',     'baking light probe',0.53],
+    ['final',    'preparing view',    0.02],
+  ];
+  const index = {};
+  let acc = 0;
+  STAGES.forEach(([k, , w], i) => { index[k] = { i, base: acc, weight: w }; acc += w; });
+
+  const el = {
+    root: document.getElementById('loader'),
+    fill: document.getElementById('loader-fill'),
+    stage: document.getElementById('loader-stage'),
+    pct: document.getElementById('loader-pct'),
+  };
+  let finished = false;
+
+  function set(key, frac) {
+    if (finished || !el.fill) return;
+    const s = index[key];
+    if (!s) return;
+    const f = Math.max(0, Math.min(1, frac));
+    const total = s.base + s.weight * f;
+    el.fill.style.width = (total * 100).toFixed(1) + '%';
+    el.pct.textContent = Math.round(total * 100) + '%';
+    el.stage.textContent = STAGES[s.i][1];
+  }
+
+  function finish() {
+    if (finished) return;
+    finished = true;
+    if (el.fill) el.fill.style.width = '100%';
+    if (el.pct) el.pct.textContent = '100%';
+    if (el.stage) el.stage.textContent = 'ready';
+    // Let the bar visibly reach 100% before the panel fades, otherwise a fast
+    // load looks like a flash rather than a completed action.
+    setTimeout(() => {
+      if (el.root) el.root.classList.add('done');
+      // Remove it from the layer tree once faded so it cannot intercept clicks.
+      setTimeout(() => { if (el.root && el.root.parentNode) el.root.parentNode.removeChild(el.root); }, 500);
+    }, 180);
+  }
+
+  return { set, finish, get el() { return el; } };
+})();
+
 async function boot() {
   const { w, h } = fitCanvas();
+  Loader.set('shaders', 0);
   renderer = new Renderer(canvas);
+  renderer.onLoad = (stage, frac) => Loader.set(stage, frac);
   await renderer.ready;
+  Loader.set('shaders', 1);
   renderer.setSize(w, h);
   installContextLossHandling(renderer.gl);
   GPUTimer.init(renderer.gl);
@@ -72,8 +135,17 @@ async function boot() {
   renderer.ssaa = num('ss', 1.25);
   renderer.applyRenderSize();
 
+  // buildLevel is synchronous and takes a moment; yield once so the browser can
+  // actually paint the progress bar before the main thread blocks.
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  Loader.set('geometry', 0);
   const level = buildLevel();
+  Loader.set('geometry', 1);
+
+  await new Promise(r => requestAnimationFrame(r));
+  Loader.set('upload', 0);
   const gpu = level.mesh.toGPU(renderer.gl);
+  Loader.set('upload', 1);
   renderer.setGeometry(gpu);
   renderer.lights = level.lights.slice(0, 64);
   renderer.portals = (level.portals || []).slice(0, 10);
@@ -81,7 +153,10 @@ async function boot() {
   cam = { pos: [0, 1.7, 20], target: [0, 2.2, -6], fov: 47 };
   setShot(SHOT || 'hero');
 
-  renderer.bakeEnv(512);
+  await new Promise(r => requestAnimationFrame(r));
+  Loader.set('bake', 0);
+  await renderer.bakeEnv(512);
+  Loader.set('bake', 1);
 
   // live tuning hooks (?env=2&sun=1.2&exp=1.1&bloom=0.12&ssr=1)
   renderer.envIntensity = num('env', 0.16);
@@ -148,6 +223,9 @@ async function boot() {
     if (!ambience.started) return;
     if (document.hidden) ambience.suspend(); else ambience.resume();
   });
+
+  Loader.set('final', 1);
+  Loader.finish();
 
   installInput();
   requestAnimationFrame(loop);
