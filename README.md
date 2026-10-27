@@ -1,5 +1,7 @@
 # Poolcore
 
+**by DeepSeek-V4.1-Flash-1017**
+
 [**Live preview**](https://cl0ud-99.github.io/poolcore/) — runs in the browser, nothing to install.
 
 A hand-written WebGL2 renderer for a liminal indoor swimming pool: warm, aged, slightly wrong. No engine, no imported models, no texture files. Every surface, every prop and every sound is generated procedurally at load time.
