@@ -2,7 +2,7 @@
 //  App entry: build level, bake probes, run the render loop
 // ============================================================
 import { Renderer, SCALE_LADDER } from './renderer.js';
-import { buildLevel, WATER_Y, HALL } from './level.js';
+import { buildLevel, WATER_Y, HALL, POOL } from './level.js';
 import { V3, clamp } from './math.js';
 import { Ambience } from './audio.js';
 
@@ -497,7 +497,8 @@ const ACCEL_TAU = 0.075;            // seconds to reach ~63% of target velocity
 // gesture, window re-entry) - not normal fast flicks. At 150 a quick drag across
 // the window was being chopped into 150 px steps and lost most of its rotation.
 const MAX_PIXELS = 4000;
-const POOL_FLOOR_Y = -4.05;         // deepest point of the basin
+const POOL_FLOOR_Y = POOL.floor;    // deepest point of the basin
+const DECK_LEVEL = 0.0;             // deck surface; nothing below this exists outside the pool
 let vel = [0, 0, 0];                // smoothed movement velocity
 
 // Accumulated look delta. Mouse events arrive at the OS polling rate, not the
@@ -698,7 +699,20 @@ function updateCamera(dt) {
   const PAD = 0.35;
   cam.pos[0] = clamp(cam.pos[0], HALL.x0 + PAD, HALL.x1 - PAD);
   cam.pos[2] = clamp(cam.pos[2], HALL.z0 + PAD, HALL.z1 - PAD);
-  cam.pos[1] = clamp(cam.pos[1], POOL_FLOOR_Y + 0.25, HALL.y + HALL.vault - 0.4);
+
+  // The floor limit is not a single plane. Below deck level there is only the
+  // basin: the walls and floor exist inside the pool rectangle, and everywhere
+  // else under y = 0 is empty space with nothing but backfacing deck above it.
+  // Allowing the camera down there let it drop through the deck and look up at
+  // culled surfaces, which reads as the model having no bottom.
+  //
+  // So: inside the pool the limit is the basin floor, outside it the limit is
+  // just above the deck.
+  const inPoolX = cam.pos[0] > POOL.x0 + 0.3 && cam.pos[0] < POOL.x1 - 0.3;
+  const inPoolZ = cam.pos[2] > POOL.z0 + 0.3 && cam.pos[2] < POOL.z1 - 0.3;
+  const overWater = inPoolX && inPoolZ;
+  const lowest = overWater ? POOL_FLOOR_Y + 0.35 : DECK_LEVEL + 0.25;
+  cam.pos[1] = clamp(cam.pos[1], lowest, HALL.y + HALL.vault - 0.4);
 
   applyLook();
 }
@@ -811,6 +825,9 @@ const HUD = (() => {
 
 const APP = {
   setShot,
+  // Exposed for automated tests and for console debugging.
+  get cam() { return cam; },
+  get renderer() { return renderer; },
   stats() {
     const avg = frames.length ? frames.reduce((a, b) => a + b, 0) / frames.length : 0;
     const cpuAvg = cpuFrames.length ? cpuFrames.reduce((a, b) => a + b, 0) / cpuFrames.length : 0;
