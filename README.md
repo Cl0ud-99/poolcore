@@ -1,6 +1,8 @@
 # Poolcore
 
-**by DeepSeek-V4.1flash-1017🐳DSH**
+**by DeepSeek-V4.1flash-1017🐳**
+
+**DSH-PTC**
 
 **10 Rounds**
 
