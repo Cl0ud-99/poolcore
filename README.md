@@ -1,6 +1,6 @@
 # Poolcore
 
-**by DeepSeek-V4.1-Flash-1017**
+**by DeepSeek-V4.1flash-1017**
 
 [**Live preview**](https://cl0ud-99.github.io/poolcore/) — runs in the browser, nothing to install.
 
